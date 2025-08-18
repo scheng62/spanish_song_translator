@@ -7,13 +7,16 @@ from langchain_openai import OpenAIEmbeddings
 from pinecone import Pinecone
 from langchain import hub
 import streamlit as st
-
+from typing import TypedDict, List, Dict
 from gtts import gTTS
 from langgraph.graph import StateGraph, END
 from IPython.display import Image, display
 
 from pages.Slang import slang_main
 from pages.Vocabulary import vocab_main
+import json
+import re
+import pandas as pd
 
 load_dotenv()
 
@@ -25,7 +28,7 @@ llm = init_chat_model("gpt-4o-mini", model_provider="openai")
 
 ### State
 
-from typing import TypedDict, List, Dict
+
 
 class State(TypedDict):
     spa_lyrics: str
@@ -81,14 +84,51 @@ def slang_capture(state: State) -> State:
 
 # Tutor node
 def vocab_tutor(state: State) -> State:
-    system_message_content = f""" Explain the Spanish lyrics step by step in English, focusing on grammar, idioms, and meaning. Refer to the Slang Notes if there's any.
-    /n
-    Lyrics: {state['spa_lyrics']}
-    Translation: {state['adapted_translation']}
-    Slang Notes: {state['slang_notes']}"""
+    # system_message_content = f""" Explain the Spanish lyrics step by step in English, focusing on grammar, idioms, and meaning. Refer to the Slang Notes if there's any.
+    # \n
+    # Lyrics: {state['spa_lyrics']}
+    # Translation: {state['adapted_translation']}
+    # Slang Notes: {state['slang_notes']}"""
+
+    system_message_content = f"""Analyze the following Spanish lyrics and provide only a structured JSON object. 
+    Do not include any explanations or text outside the JSON. The JSON should be an array where each element represents a word, starting with index 0 for the first word, 1 for the second, and so on.
+    \n
+    Instructions:
+    - For each word in the lyrics that is **not a common stop word**, provide:
+    - "Word": the original Spanish word
+    - "Meaning": English translation or meaning
+    - "Tense": if the word is a verb, include its tense; otherwise, null
+    - "Conjugations": common conjugations if applicable; otherwise, "N/A"
+    - "Example": a sentence in Spanish using the word in context
+    \n
+    Lyrics: "{state['spa_lyrics']}"""
+
     response = llm.invoke([HumanMessage(system_message_content)])
-    state['tutor_notes'] = response.content
+    # state['tutor_notes'] = response.content
+
+
+    raw_output = response.content
+
+    cleaned = re.sub(r"```json|```", "", raw_output).strip()
+
+    # try:
+    #     parsed = json.loads(cleaned.strip())
+    #     if "Lyrics Analysis" in parsed:
+    #         structured_output = parsed["Lyrics Analysis"]
+    #     else:
+    #         structured_output = parsed
+    # except json.JSONDecodeError as e:
+    #     structured_output = {"error": f"Failed to parse JSON: {e}", "raw": raw_output}
+        
+    try:
+        parsed = json.loads(cleaned.strip())
+        structured_output = parsed
+    except json.JSONDecodeError as e:
+        structured_output = {"error": f"Failed to parse JSON: {e}", "raw": raw_output}
+
+    state["tutor_notes"] = structured_output
     return state
+
 
 # Audio node
 def audio(state: State) -> State:
@@ -120,6 +160,11 @@ graph = graph_builder.compile()
 # display(Image(graph.get_graph().draw_mermaid_png()))
 
 
+if "slang_notes" not in st.session_state:
+    st.session_state.slang_notes = []
+
+if "tutor_notes" not in st.session_state:
+    st.session_state.tutor_notes = []
 
 # main_page = st.Page(spa_main, title="Spanish Song Translator", icon="🤖")
 # slang_page = st.Page(slang_main, title="Slang Notes", icon="✏️")
@@ -140,21 +185,49 @@ st.title("Spanish Song Translator")
 st.text_area("Enter the spanish lyrics:",key="lyrics")
 
 if st.button("Translate!"):
-  state = {'spa_lyrics': st.session_state.lyrics}
+    state = {'spa_lyrics': st.session_state.lyrics}
 
-  results = graph.invoke(state)
+    results = graph.invoke(state)
 
-  st.subheader("Literal English Translation")
-  st.write(results['literal_translation'])
+    st.subheader("Literal English Translation")
+    st.write(results['literal_translation'])
 
-  st.subheader("Cultural-adapted English Translation")
-  st.write(results['adapted_translation'])
-  
-  st.subheader("Slang Tutor")
-  st.write(results['slang_notes'])
+    st.subheader("Cultural-adapted English Translation")
+    st.write(results['adapted_translation'])
+    
+    st.subheader("Slang Tutor")
+    st.write(results['slang_notes'])
 
-  st.subheader("Vocabulary Builder")  
-  st.write(results['tutor_notes'])
+    st.subheader("Vocabulary Builder")  
+    st.write(results['tutor_notes'])
 
-  st.subheader("Audio")
-  st.audio(results['audio_path'])
+    st.subheader("Audio")
+    st.audio(results['audio_path'])
+
+    
+    tutor_notes_raw = results['tutor_notes']
+    if isinstance(tutor_notes_raw, str):
+        try:
+            tutor_notes = json.loads(tutor_notes_raw)
+        except json.JSONDecodeError:
+            st.error("Failed to parse tutor notes JSON.")
+            tutor_notes = []
+    else:
+        tutor_notes = tutor_notes_raw
+
+
+    if isinstance(tutor_notes, list):
+        for word_info in tutor_notes:
+            st.session_state.tutor_notes.append({
+                "Word": word_info.get("Word"),
+                "Meaning": word_info.get("Meaning"),
+                "Tense": word_info.get("Tense"),
+                "Conjugations": word_info.get("Conjugations"),
+                "Example": word_info.get("Example"),
+            })
+    
+    if "tutor_notes" not in st.session_state or not st.session_state.tutor_notes:
+        st.info("No new vocabularies yet. Go to the Translator page first.")
+    else:
+        df = pd.DataFrame(st.session_state.tutor_notes)
+        st.dataframe(df)
