@@ -11,6 +11,8 @@ def vocab_main():
     st.markdown("# Vocabulary Builder 📖")
     # st.sidebar.markdown("# Vocabulary Builder 📖")
 
+    # if st.button("Clear Vocabulary")
+
     if "tutor_notes" not in st.session_state or not st.session_state.tutor_notes:
         st.info("No new vocabularies yet. Go to the Translator page first.")
     else:

@@ -95,10 +95,17 @@ def vocab_tutor(state: State) -> State:
     \n
     Instructions:
     - For each word in the lyrics that is **not a common stop word**, provide:
+    \n
     - "Word": the original Spanish word
+    \n
     - "Meaning": English translation or meaning
+    \n
+    - "Lemma": the dictionary form of a word
+    \n
     - "Tense": if the word is a verb, include its tense; otherwise, null
+    \n
     - "Conjugations": common conjugations if applicable; otherwise, "N/A"
+    \n
     - "Example": a sentence in Spanish using the word in context
     \n
     Lyrics: "{state['spa_lyrics']}"""
@@ -221,6 +228,7 @@ if st.button("Translate!"):
             st.session_state.tutor_notes.append({
                 "Word": word_info.get("Word"),
                 "Meaning": word_info.get("Meaning"),
+                "Lemma": word_info.get("Lemma"),
                 "Tense": word_info.get("Tense"),
                 "Conjugations": word_info.get("Conjugations"),
                 "Example": word_info.get("Example"),
