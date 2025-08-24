@@ -1,3 +1,4 @@
+from turtle import onclick
 from dotenv import load_dotenv
 import getpass
 import os
@@ -6,6 +7,7 @@ from langchain.schema import HumanMessage, SystemMessage
 from langchain_openai import OpenAIEmbeddings 
 from pinecone import Pinecone
 from langchain import hub
+from pydantic_core.core_schema import NoneSchema
 import streamlit as st
 from typing import TypedDict, List, Dict
 from gtts import gTTS
@@ -17,6 +19,14 @@ from pages.Vocabulary import vocab_main
 import json
 import re
 import pandas as pd
+
+
+### Todo:
+### 1. Make this an interactive chatbox style translator (especiall for the culture adaption part)
+### 2. Add a RAG feature
+### 3. Make the vocabulary list append istead of being overwritten
+### 4. Adjust the position of the clear button
+### 5. Button in vocabulary builder shows up the same time as the notes table
 
 load_dotenv()
 
@@ -98,6 +108,8 @@ def vocab_tutor(state: State) -> State:
     \n
     - "Word": the original Spanish word
     \n
+    - "POS": the part of speech
+    \n
     - "Meaning": English translation or meaning
     \n
     - "Lemma": the dictionary form of a word
@@ -167,11 +179,33 @@ graph = graph_builder.compile()
 # display(Image(graph.get_graph().draw_mermaid_png()))
 
 
+### Initialize state varaibles
+if "lyrics" not in st.session_state:
+    st.session_state.lyrics = ""
+
+if "last_translation" not in st.session_state:
+    st.session_state.last_translation = None
+
 if "slang_notes" not in st.session_state:
     st.session_state.slang_notes = []
 
 if "tutor_notes" not in st.session_state:
     st.session_state.tutor_notes = []
+
+if "session_clear" not in st.session_state:
+    st.session_state.session_clear = False
+
+# Reset all
+def clear_all():
+    st.session_state.lyrics = ""
+    st.session_state.last_translation = None
+    st.session_state.slang_notes = []
+    st.session_state.tutor_notes = []
+    # st.session_state.session_clear = False
+
+def change_session_state():
+    if st.session_state.session_clear:
+        st.session_state.session_clear = False
 
 # main_page = st.Page(spa_main, title="Spanish Song Translator", icon="🤖")
 # slang_page = st.Page(slang_main, title="Slang Notes", icon="✏️")
@@ -189,30 +223,41 @@ st.set_page_config(
 
 st.title("Spanish Song Translator")
 
-st.text_area("Enter the spanish lyrics:",key="lyrics")
+st.text_area("Enter the spanish lyrics:",key="lyrics", on_change=change_session_state)
 
-if st.button("Translate!"):
+if st.button("Translate!", type='primary'):
     state = {'spa_lyrics': st.session_state.lyrics}
 
     results = graph.invoke(state)
 
+    # Save results to the last state so that it's not cleared
+    st.session_state.last_translation = results
+
+if st.button("Clear All Histories!", type='secondary', on_click=clear_all):
+    st.session_state.session_clear = True
+
+if st.session_state.last_translation and not st.session_state.session_clear:
+    saved_results = st.session_state.last_translation
+
     st.subheader("Literal English Translation")
-    st.write(results['literal_translation'])
+    st.write(saved_results['literal_translation'])
 
     st.subheader("Cultural-adapted English Translation")
-    st.write(results['adapted_translation'])
+    st.write(saved_results['adapted_translation'])
     
     st.subheader("Slang Tutor")
-    st.write(results['slang_notes'])
+    st.write(saved_results['slang_notes'])
 
     st.subheader("Vocabulary Builder")  
-    st.write(results['tutor_notes'])
+    st.write(saved_results['tutor_notes'])
 
     st.subheader("Audio")
-    st.audio(results['audio_path'])
+    st.audio(saved_results['audio_path'])
 
+
+    # tutor_notes = saved_results['tutor_notes']
     
-    tutor_notes_raw = results['tutor_notes']
+    tutor_notes_raw = saved_results['tutor_notes']
     if isinstance(tutor_notes_raw, str):
         try:
             tutor_notes = json.loads(tutor_notes_raw)
@@ -227,6 +272,7 @@ if st.button("Translate!"):
         for word_info in tutor_notes:
             st.session_state.tutor_notes.append({
                 "Word": word_info.get("Word"),
+                "Part of Speech": word_info.get("POS"),
                 "Meaning": word_info.get("Meaning"),
                 "Lemma": word_info.get("Lemma"),
                 "Tense": word_info.get("Tense"),
@@ -234,8 +280,13 @@ if st.button("Translate!"):
                 "Example": word_info.get("Example"),
             })
     
-    if "tutor_notes" not in st.session_state or not st.session_state.tutor_notes:
-        st.info("No new vocabularies yet. Go to the Translator page first.")
-    else:
-        df = pd.DataFrame(st.session_state.tutor_notes)
-        st.dataframe(df)
+    # if "tutor_notes" not in st.session_state or not st.session_state.tutor_notes:
+    #     st.info("No new vocabularies yet. Go to the Translator page first.")
+    # else:
+    #     df = pd.DataFrame(st.session_state.tutor_notes)
+    #     st.dataframe(df)
+
+
+# if st.button("Clear!", type='secondary', on_click=clear_lyrics):
+#     st.session_state.last_translation = None
+#     st.session_state.session_clear = True
